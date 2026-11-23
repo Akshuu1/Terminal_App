@@ -35,22 +35,53 @@ Unlike standard command-line tools that wait for an `Enter` keystroke and append
 ## Architecture & Data Flow
 
 ```mermaid
-graph TD
-    A[User Keystroke] -->|Raw Byte Stream| B[process.stdin]
-    B --> C{Key / Byte Parser}
+flowchart TD
+    A["User Keystroke"] -->|"Raw Byte Stream"| B["process.stdin"]
+    B --> C{"Key / Byte Parser"}
     
-    C -->|Up / Down: 0x1B 0x5B 0x41/42| D[Update Cursor State via Modulo Math]
-    C -->|Enter: 0x0D| E[Kill Existing Audio Process & Spawn New]
-    C -->|Space: 0x20| F{Toggle Playback State}
-    C -->|Ctrl+C: 0x03| G[Graceful Cleanup & process.exit]
+    C -->|"Up / Down (0x1B 0x5B 0x41/42)"| D["Update Cursor State (Modulo Math)"]
+    C -->|"Enter (0x0D)"| E["Kill Existing Audio Process & Spawn New"]
+    C -->|"Space (0x20)"| F{"Toggle Playback State"}
+    C -->|"Ctrl+C (0x03)"| G["Graceful Cleanup & process.exit()"]
     
-    D --> H[In-Place Screen Redraw: \x1B[2;1H]
+    D --> H["In-Place Screen Redraw (ANSI ESC [ 2 ; 1 H)"]
     
-    E --> I[Child Process: spawn('afplay', [song])]
-    F -->|If Playing| J[Send SIGSTOP -> Pause]
-    F -->|If Paused| K[Send SIGCONT -> Resume]
+    E --> I["Child Process (spawn afplay)"]
+    F -->|"If Playing"| J["Send SIGSTOP: Pause"]
+    F -->|"If Paused"| K["Send SIGCONT: Resume"]
     
-    I --> L((System Audio Output))
+    J -.-> I
+    K -.-> I
+    I --> L(("System Audio Output"))
+```
+
+```text
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                ARCHITECTURE & DATA FLOW                                │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+    [ User Keyboard ]
+           │
+           ▼  (Raw Byte Stream: unbuffered, no echo)
+    [ process.stdin (Raw Mode) ]
+           │
+           ▼
+    ┌───────────────────────┐
+    │   Key / Byte Parser   │
+    └───────────────────────┘
+       │           │            │                    │
+       │ (Arrows)  │ (Enter)    │ (Space)            │ (Ctrl+C: 0x03)
+       │ 0x1B..    │ 0x0D       │ 0x20               │
+       ▼           ▼            ▼                    ▼
+   [ Cursor ]  [ Play Song ]  [ Toggle Pause ]  [ process.exit() ]
+   [ Modulo ]      │            │
+       │           │            ├─► SIGSTOP (Freeze)
+       ▼           │            └─► SIGCONT (Resume)
+   [ Redraw UI ]   ▼                    │
+   (\x1B[2;1H) [ Child Process: afplay ]◄┘
+                   │
+                   ▼
+         (( System Audio Output ))
 ```
 
 ---
